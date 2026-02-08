@@ -50,11 +50,11 @@ clean_df['HIT_BARRIER'] = clean_df.apply(is_unable, axis=1)
 clean_df = clean_df.dropna(subset=['HIT_BARRIER', 'AGELAST'])
 
 # defining variables and doing a logistic regression
-X = clean_df[["AGELAST"]]
-y = clean_df["HIT_BARRIER"]
+X1 = clean_df[["AGELAST"]]
+y1 = clean_df["HIT_BARRIER"]
 
 log_reg = LogisticRegression()
-log_reg.fit(X, y)
+log_reg.fit(X1, y1)
 
 # presenting the result
 print(f"Age Coefficient: {log_reg.coef_[0][0]:.4f}")
@@ -73,35 +73,99 @@ plt.ylim(-0.05, 1.05) # Keeps the y-axis strictly between 0 and 1
 plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-
-# ==========================================
+# =========================================================
 # SECOND: Finding the relationship between sex and quitting
-# ==========================================
+# =========================================================
+clean_df['HIT_BARRIER'] = clean_df.apply(is_unable, axis=1)
 
-# define variables
-y1 = cancer_df["TOTSLF"] # for good luck, you define the y first
-x1 = cancer_df[["CANCERDX"]]
+# drop rows where we don't know the answer
+clean_df = clean_df.dropna(subset=['HIT_BARRIER', 'SEX'])
 
-# splitting training and testing data (pareto's rule)
-X1_train, X1_test, y1_train, y1_test = train_test_split(x1, y1, test_size=0.2, random_state=88)
+# defining variables and doing a logistic regression
+X2 = clean_df[["SEX"]]
+y2 = clean_df["HIT_BARRIER"]
 
-# do the random forest gahh
-rf1 = RandomForestRegressor(n_estimators=100, random_state=88)
+log_reg = LogisticRegression()
+log_reg.fit(X2, y2)
 
-# fit the data first
-rf1.fit(X1_train, y1_train)
-importances = rf1.feature_importances_
-print(f"Feature Importances (Income vs Cost): {importances}")
+# presenting the result
+print(f"Sex Coefficient: {log_reg.coef_[0][0]:.4f}")
 
-avg_cost_cancer = main_df[main_df['CANCERDX']==1]['TOTSLF'].mean()
-avg_cost_healthy = main_df[main_df['CANCERDX']==0]['TOTSLF'].mean()
+sns.regplot(x='SEX', y='HIT_BARRIER', data=clean_df, 
+            logistic=True, 
+            ci=95, # This adds a shaded 'confidence interval' (very good for your report!)
+            scatter_kws={'alpha':0.05, 'color': 'navy'}, # Makes the raw data points transparent
+            line_kws={'color': 'red', 'lw': 3}) # Makes the regression line bold and red
 
-print(f"Average Cost for Cancer Patients: ${avg_cost_cancer:,.2f}")
-print(f"Average Cost for Others:          ${avg_cost_healthy:,.2f}")
-print(f"Link Confirmed: Cancer patients pay {avg_cost_cancer/avg_cost_healthy:.1f}x more.")
+# Labeling of the graph
+plt.title('Probability of Facing Treatment Barriers vs. Sex', fontsize=14)
+plt.xlabel('Sex of Patient', fontsize=12)
+plt.ylabel('Probability of Hitting a Barrier (0.0 to 1.0)', fontsize=12)
+plt.ylim(-0.05, 1.05) # Keeps the y-axis strictly between 0 and 1
+plt.show()
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# ===================================================================
+# THIRD: Finding the relationship between family income and quitting
+# ===================================================================
+
+clean_df['HIT_BARRIER'] = clean_df.apply(is_unable, axis=1)
+
+# drop rows where we don't know the answer
+clean_df = clean_df.dropna(subset=['HIT_BARRIER', 'FAMINC'])
+
+# defining variables and doing a logistic regression
+X3 = clean_df[["FAMINC"]]
+y3= clean_df["HIT_BARRIER"]
+
+log_reg = LogisticRegression()
+log_reg.fit(X3, y3)
+
+# presenting the result
+print(f"Family Income Coefficient: {log_reg.coef_[0][0]:.4f}")
+
+sns.regplot(x='FAMINC', y='HIT_BARRIER', data=clean_df, 
+            logistic=True, 
+            ci=95, # This adds a shaded 'confidence interval' (very good for your report!)
+            scatter_kws={'alpha':0.05, 'color': 'navy'}, # Makes the raw data points transparent
+            line_kws={'color': 'red', 'lw': 3}) # Makes the regression line bold and red
+
+# Labeling of the graph
+plt.title('Probability of Facing Treatment Barriers vs. Family Income', fontsize=14)
+plt.xlabel('Family Income of Patient', fontsize=12)
+plt.ylabel('Probability of Hitting a Barrier (0.0 to 1.0)', fontsize=12)
+plt.ylim(-0.05, 1.05) # Keeps the y-axis strictly between 0 and 1
+plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 
 # ==========================================
-# THIRD: Finding the relationship between cost, income, insurance, family member, quitting
+# FOURTH: Finding the relationship between out of pocket cost and quitting
 # ==========================================
+
+clean_df['HIT_BARRIER'] = clean_df.apply(is_unable, axis=1)
+
+# drop rows where we don't know the answer
+clean_df = clean_df.dropna(subset=['HIT_BARRIER', 'TOTSLF'])
+
+# defining variables and doing a logistic regression
+X4 = clean_df[["TOTSLF"]]
+y4= clean_df["HIT_BARRIER"]
+
+log_reg = LogisticRegression()
+log_reg.fit(X4, y4)
+
+# presenting the result
+print(f"Out of Pocket Cost Coefficient: {log_reg.coef_[0][0]:.4f}")
+
+sns.regplot(x='TOTSLF', y='HIT_BARRIER', data=clean_df, 
+            logistic=True, 
+            ci=95, # This adds a shaded 'confidence interval' (very good for your report!)
+            scatter_kws={'alpha':0.05, 'color': 'navy'}, # Makes the raw data points transparent
+            line_kws={'color': 'red', 'lw': 3}) # Makes the regression line bold and red
+
+# Labeling of the graph
+plt.title('Probability of Facing Treatment Barriers vs. Out of Pocket Cost', fontsize=14)
+plt.xlabel('Out of Pocket Cost', fontsize=12)
+plt.ylabel('Probability of Hitting a Barrier (0.0 to 1.0)', fontsize=12)
+plt.ylim(-0.05, 1.05) # Keeps the y-axis strictly between 0 and 1
+plt.show()
