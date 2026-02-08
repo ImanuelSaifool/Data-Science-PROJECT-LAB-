@@ -11,14 +11,21 @@ df2022 = pd.read_csv("https://raw.githubusercontent.com/ImanuelSaifool/Does-canc
 df2023 = pd.read_csv("https://raw.githubusercontent.com/ImanuelSaifool/Does-cancer-financial-issues-/Imanuel's-Test-site/2023%20data.csv")
 
 # renaming stuff
+    # out of pocket cost between different years
 df2021p1 = df2021p1.rename(columns={"TOTSLF21": "TOTSLF"})
 df2021p2 = df2021p2.rename(columns={"TOTSLF21": "TOTSLF"}) 
 df2022 = df2022.rename(columns={"TOTSLF22": "TOTSLF"})
 df2023 = df2023.rename(columns={"TOTSLF23": "TOTSLF"})
+    # family income between different years
 df2021p1 = df2021p1.rename(columns={"FAMINC21": "FAMINC"})
 df2021p2 = df2021p2.rename(columns={"FAMINC21": "FAMINC"}) 
 df2022 = df2022.rename(columns={"FAMINC22": "FAMINC"})
 df2023 = df2023.rename(columns={"FAMINC23": "FAMINC"})
+    # insurance covered between different years
+df2021p1 = df2021p1.rename(columns={"INSCOV21": "INSCOV"})
+df2021p2 = df2021p2.rename(columns={"INSCOV21": "INSCOV"}) 
+df2022 = df2022.rename(columns={"INSCOV22": "INSCOV"})
+df2023 = df2023.rename(columns={"INSCOV23": "INSCOV"})
 
 # combining them
 main_df = pd.concat([df2021p1, df2021p2, df2022, df2023], axis=0)
@@ -44,62 +51,59 @@ def is_unable(row):
 clean_df['UNABLE'] = clean_df.apply(is_unable, axis=1)
 
 clean_df = clean_df.dropna(subset=['UNABLE'])
+
+# we need to define the policy groups for our study
+def get_policy_group(code):
+    if code == 1: return "Private (Market)"
+    elif code == 2: return "Public (Subsidized)"
+    elif code == 3: return "Uninsured"
+    else: return "Unknown"
+
+clean_df['POLICY_GROUP'] = clean_df['INSCOV'].apply(get_policy_group)
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 # ==========================================
 # FIRST: Summary Statistics
 # ==========================================
 summary_stats = clean_df[features].describe()
 print(summary_stats)
-
 print(clean_df.groupby('UNABLE')['TOTSLF'].mean())
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# Set the aesthetic style for your plots
+# White grid for plottsss
 sns.set_style("whitegrid")
 
 # ==========================================
-# 1. THE "PROBLEM SOLVER": Box Plot
+# 4. RESULTS FOR PROPOSAL
 # ==========================================
-plt.figure(figsize=(8, 6))
-# We limit Y-axis to 10,000 to zoom in (since max is 169k, it squashes the plot)
-sns.boxplot(x='UNABLE', y='TOTSLF', data=clean_df, showfliers=False, palette="Set2")
-plt.title('Do Patients Who "Quit" Pay More?', fontsize=14)
-plt.ylabel('Out-of-Pocket Cost ($)', fontsize=12)
-plt.xlabel('Unable to Access Care (0=No, 1=Yes)', fontsize=12)
-plt.show()
+print("--- SUMMARY STATISTICS (For Proposal) ---")
+print(clean_df[["TOTSLF", "FAMINC", "UNABLE"]].describe())
+
+print("\n--- THE SUBSIDY SIGNAL: Quitting Rates by Group ---")
+# This table proves if Public Insurance is working better than Uninsured
+policy_stats = clean_df.groupby('POLICY_GROUP')[['UNABLE', 'TOTSLF', 'FAMINC']].mean()
+print(policy_stats)
 
 # ==========================================
-# 2. THE "RISK FACTOR": Bar Chart by Cancer Type
+# 5. VISUALIZATION (The "Money Shot")
 # ==========================================
-# First, we need to "melt" the cancer columns to get a single 'Cancer Type' column
-cancer_cols = ["CABLADDR", "CABREAST", "CACERVIX", "CACOLON", "CALUNG", "CALYMPH", "CAMELANO"]
-# Calculate the % Unable for each cancer type
-risk_data = {}
-for cancer in cancer_cols:
-    # Filter for people who have this cancer (value 1)
-    subset = clean_df[clean_df[cancer] == 1]
-    # Calculate percentage who were unable
-    if len(subset) > 0:
-        risk_data[cancer] = subset['UNABLE'].mean() * 100
-
-# Convert to DataFrame for plotting
-risk_df = pd.DataFrame(list(risk_data.items()), columns=['Cancer Type', 'Percent Unable'])
-risk_df = risk_df.sort_values('Percent Unable', ascending=False)
-
 plt.figure(figsize=(10, 6))
-sns.barplot(x='Percent Unable', y='Cancer Type', data=risk_df, palette="Reds_r")
-plt.title('Which Cancer Patients Face the Biggest Barriers?', fontsize=14)
-plt.xlabel('Percentage of Patients Unable to Get Care (%)', fontsize=12)
-plt.show()
+sns.set_style("whitegrid")
 
-# ==========================================
-# 3. THE "BIG PICTURE": Correlation Heatmap
-# ==========================================
-plt.figure(figsize=(10, 8))
-# Select only numerical/binary columns for correlation
-corr_cols = ["UNABLE", "TOTSLF", "FAMINC", "AGELAST", "SEX"]
-corr_matrix = clean_df[corr_cols].corr()
+# Bar Chart: Comparing Barriers to Care across Groups
+ax = sns.barplot(x='POLICY_GROUP', y='UNABLE', data=clean_df, 
+                 order=["Uninsured", "Public (Subsidized)", "Private (Market)"], 
+                 palette="RdBu")
 
-sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5)
-plt.title('Correlation Matrix: What is Linked to "Unable"?', fontsize=14)
+plt.title('Evaluating Subsidy Efficacy: Access Barriers by Insurance Type', fontsize=14)
+plt.ylabel('Probability of Being Unable to Access Care', fontsize=12)
+plt.xlabel('Policy Group', fontsize=12)
+
+# Add the actual % numbers on top of the bars for clarity
+for p in ax.patches:
+    ax.annotate(f'{p.get_height()*100:.1f}%', 
+                (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')
+
 plt.show()
