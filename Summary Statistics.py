@@ -32,9 +32,10 @@ main_df = pd.concat([df2021p1, df2021p2, df2022, df2023], axis=0)
 
 
 # data filter
-features = ["FAMINC","TOTSLF", "AGELAST", "SEX", "CABLADDR", "CABREAST", "CACERVIX", "CACOLON", "CALUNG", "CALYMPH", "CAMELANO", "CAOTHER"]
+demog_features = ["FAMINC", "TOTSLF", "AGELAST", "SEX"]
+cancer_features = ["CABLADDR", "CABREAST", "CACERVIX", "CACOLON", "CALUNG", "CALYMPH", "CAMELANO", "CAOTHER"]
 clean_df = main_df[main_df['CANCERDX'] == 1].copy() 
-clean_df = clean_df[(clean_df[features] >= 0).all(axis=1)]
+clean_df = clean_df[(clean_df[demog_features] >= 0).all(axis=1)]
 
 def is_unable(row):
     # Change from physical inability to FINANCIAL inability
@@ -68,7 +69,7 @@ print(clean_df.groupby('UNABLE')['TOTSLF'].mean())
 sns.set_style("whitegrid")
 
 # ==========================================
-# 4. RESULTS FOR PROPOSAL
+# SUMMARY STATISTICS
 # ==========================================
 print("--- SUMMARY STATISTICS (For Proposal) ---")
 print(clean_df[["TOTSLF", "FAMINC", "UNABLE"]].describe())
@@ -77,3 +78,52 @@ print("\n--- THE SUBSIDY SIGNAL: Quitting Rates by Group ---")
 # This table proves if Public Insurance is working better than Uninsured
 policy_stats = clean_df.groupby('POLICY_GROUP')[['UNABLE', 'TOTSLF', 'FAMINC']].mean()
 print(policy_stats)
+
+# ==========================================
+# 2. NEW CHART: Cancer Type vs Quitting Count
+# ==========================================
+print("\n--- GENERATING BAR CHART: Cancer Types vs Quitting Treatment ---")
+
+cancer_counts = []
+
+for c_type in cancer_features:
+    # Filter for patients who have this specific cancer type (Assuming 1 = Yes)
+    patients_with_cancer = clean_df[clean_df[c_type] == 1]
+    
+    # Calculate how many are 'UNABLE' (Quitting)
+    quit_count = patients_with_cancer['UNABLE'].sum()
+    
+    # Optional: Calculate percentage to see rate as well
+    total_patients = len(patients_with_cancer)
+    quit_rate = (quit_count / total_patients * 100) if total_patients > 0 else 0
+    
+    cancer_counts.append({
+        'Cancer Type': c_type.replace('CA', ''), # Clean up name (e.g., CABREAST -> BREAST)
+        'Quitting Count': quit_count,
+        'Total Patients': total_patients,
+        'Quitting Rate': quit_rate
+    })
+
+# Convert to DataFrame for plotting
+viz_df = pd.DataFrame(cancer_counts)
+viz_df = viz_df.sort_values(by='Quitting Count', ascending=False)
+
+# Plotting
+plt.figure(figsize=(12, 6))
+sns.barplot(data=viz_df, x='Cancer Type', y='Quitting Count', palette='viridis')
+
+plt.title('Number of People Quitting Treatment (Unable to Pay) by Cancer Type', fontsize=14)
+plt.xlabel('Cancer Type', fontsize=12)
+plt.ylabel('Number of People', fontsize=12)
+plt.xticks(rotation=45)
+
+# Add value labels on top of bars
+for i, row in enumerate(viz_df.itertuples()):
+    plt.text(i, row._2 + 0.1, f'{int(row._2)}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+
+print("\nData used for Chart:")
+print(viz_df[['Cancer Type', 'Quitting Count', 'Total Patients', 'Quitting Rate']])
+
