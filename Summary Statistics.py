@@ -34,6 +34,7 @@ main_df = pd.concat([df2021p1, df2021p2, df2022, df2023], axis=0)
 # data filter
 demog_features = ["FAMINC", "TOTSLF", "AGELAST", "SEX"]
 cancer_features = ["CABLADDR", "CABREAST", "CACERVIX", "CACOLON", "CALUNG", "CALYMPH", "CAMELANO", "CAOTHER"]
+features = []
 clean_df = main_df[main_df['CANCERDX'] == 1].copy() 
 clean_df = clean_df[(clean_df[demog_features] >= 0).all(axis=1)]
 
@@ -63,7 +64,6 @@ clean_df['POLICY_GROUP'] = clean_df['INSCOV'].apply(get_policy_group)
 summary_stats = clean_df[features].describe()
 print(summary_stats)
 print(clean_df.groupby('UNABLE')['TOTSLF'].mean())
-
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 # White grid for plottsss
 sns.set_style("whitegrid")
@@ -126,4 +126,3 @@ plt.show()
 
 print("\nData used for Chart:")
 print(viz_df[['Cancer Type', 'Quitting Count', 'Total Patients', 'Quitting Rate']])
-
