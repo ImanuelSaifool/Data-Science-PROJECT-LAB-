@@ -115,8 +115,6 @@ disease_map = {
 }
 
 
-
-
 # Filter for positive cancer diagnosis and public health insurance
 clean_df = main_df[(main_df['CANCERDX'] == 1) & (main_df['INSCOV'] == 2)].copy()
 
@@ -183,86 +181,35 @@ summary_table = pd.DataFrame(summary_list).sort_values(by="Prevalence (%)", asce
 print("\n--- Comorbidity Impact Table ---")
 print(summary_table.to_string(index=False))
 
-
-# -------------------------------------------------------
-# GRAPH A: Prevalence (How common is it?)
-# -------------------------------------------------------
-# 1. SETUP THE FIGURE (3 Subplots)
-fig, axes = plt.subplots(1, 3, figsize=(20, 6))
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 5. VISUALIZATIONS (Heatmap & Policy Graphs)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Set style
 sns.set_style("whitegrid")
 
-sns.barplot(
-    data=summary_table, 
-    x="Prevalence (%)", 
-    y="Comorbidity", 
-    ax=axes[0], 
-    palette="Blues_r"
+# A. FEATURE CORRELATION HEATMAP (Targeted)
+# We select only the "drivers" of adherence to see the signal clearly
+plt.figure(figsize=(10, 8))
+corr_features = ['UNABLE', 'TOTSLF', 'FAMINC', 'PUBLIC_TOTAL', 'AGELAST']
+corr_data = clean_df[corr_features].corr()
+
+sns.heatmap(
+    corr_data, 
+    annot=True, 
+    cmap='coolwarm', 
+    fmt=".2f", 
+    linewidths=0.5,
+    vmin=-1, vmax=1
 )
-axes[0].set_title("Prevalence of Comorbidities\n(Frequency in Cancer Patients)", fontsize=14, fontweight='bold')
-axes[0].set_xlabel("Percentage of Patients (%)")
-axes[0].set_ylabel("") # Remove y-label for cleaner look
-
-# -------------------------------------------------------
-# GRAPH B: Financial Toxicity (The "Problem")
-# -------------------------------------------------------
-# We sort this graph by Cost so the most expensive ones are at the top
-cost_sorted = summary_table.sort_values(by="Avg OOP Cost ($)", ascending=False)
-
-sns.barplot(
-    data=cost_sorted, 
-    x="Avg OOP Cost ($)", 
-    y="Comorbidity", 
-    ax=axes[1], 
-    palette="Reds_r"
-)
-axes[1].set_title("Financial Toxicity\n(Avg. Out-of-Pocket Cost)", fontsize=14, fontweight='bold')
-axes[1].set_xlabel("Annual Cost ($)")
-axes[1].set_ylabel("") 
-
-# -------------------------------------------------------
-# GRAPH C: Public Support (The "Policy Response")
-# -------------------------------------------------------
-# We sort this by Public Pay to see where the money is going
-public_sorted = summary_table.sort_values(by="Avg Public Pay ($)", ascending=False)
-
-sns.barplot(
-    data=public_sorted, 
-    x="Avg Public Pay ($)", 
-    y="Comorbidity", 
-    ax=axes[2], 
-    palette="Greens_r"
-)
-axes[2].set_title("Government Support\n(Avg. Public Insurance Payment)", fontsize=14, fontweight='bold')
-axes[2].set_xlabel("Annual Payment ($)")
-axes[2].set_ylabel("")
-
-# Final Layout Adjustments
-plt.tight_layout()
+plt.title("Correlation Heatmap: Drivers of Non-Adherence", fontsize=14)
 plt.show()
 
-
-# 1. SETUP (Focus on the Vulnerable Group)
-# We look at people who might actually NEED the subsidy (Public + Uninsured/Low Income)
-# (Assuming clean_df is already filtered for Cancer)
-
-# 2. CREATE "FINANCIAL PRESSURE" VARIABLES
-# This is what you want to "treat" with your subsidy
-clean_df['OOP_TO_INCOME_RATIO'] = clean_df['TOTSLF'] / clean_df['FAMINC'].replace(0, 1) # Avoid div/0
-
-# 3. SELECT FEATURES FOR HEATMAP
-# We want to see if "Pressure" correlates with "Unadherence"
-heatmap_cols = [
-    'UNABLE',              # Target: 1 = Quit/Delayed, 0 = Stayed
-    'TOTSLF',              # The raw cost
-    'FAMINC',              # The raw ability to pay
-    'OOP_TO_INCOME_RATIO', # The "Pressure" (The Gap)
-    'PUBLIC_TOTAL'         # Current aid (Is it helping?)
-]
-
-# 4. PLOT
-corr_matrix = clean_df[heatmap_cols].corr()
-
-plt.figure(figsize=(10, 8))
-sns.heatmap(corr_matrix, annot=True, cmap="RdBu_r", center=0)
-plt.title("Diagnostics: Does Financial Pressure Cause Quitting?", fontsize=14)
+# B. THE POLICY GAP (Bar Chart)
+# Comparing Public Subsidy for Adherent vs. Non-Adherent patients
+plt.figure(figsize=(8, 6))
+sns.barplot(x='UNABLE', y='PUBLIC_TOTAL', data=clean_df, palette="viridis")
+plt.title("Is Public Insurance Enough? (Subsidy Amount by Adherence)", fontsize=14)
+plt.xticks([0, 1], ['Adherent (No Delay)', 'Non-Adherent (Delayed)'])
+plt.ylabel("Avg. Public Insurance Payment ($)")
+plt.xlabel("Patient Status")
 plt.show()
