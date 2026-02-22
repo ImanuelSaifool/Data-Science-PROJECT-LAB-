@@ -247,18 +247,18 @@ plt.title("Correlation Heatmap: Drivers of Non-Adherence", fontsize=14)
 plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# 6. VISUALIZATIONS (Heatmap)
+# 6. VISUALIZATIONS (Boxplot of income vs cost)
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 plt.rcParams['figure.figsize'] = (12, 6)
 
-# --- VISUALIZATION 1: The "Financial Squeeze" (Income vs. Costs) ---
+
 # We use boxplots to compare the distributions.
 # Note: We use 'showfliers=False' because MEPS has massive outliers that ruin the scale.
 
 fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
 # Plot 1: Out-of-Pocket Costs
-sns.boxplot(data=clean_df, x='UNABLE', y='TOTSLF', ax=axes[0], 
+sns.boxplot(data=clean_df, x='UNABLE', y='DLAYPM42', ax=axes[0], 
             showfliers=False, palette="Reds")
 axes[0].set_title("Impact of Out-of-Pocket Costs on Adherence", fontsize=14)
 axes[0].set_xticklabels(['Able to Pay', 'Financial Toxicity (Unable/Delay)'])
