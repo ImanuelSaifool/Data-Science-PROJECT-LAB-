@@ -7,7 +7,7 @@ import sklearn
 from sklearn.feature_selection import mutual_info_classif
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# Data's entrance into this teeny weeny world
+# Data
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 df2019 = pd.read_csv("https://github.com/ImanuelSaifool/Data-Science-PROJECT-LAB-/raw/main/OneDrive/Desktop/Coding%20Projects/h216.csv")
 df2020 = pd.read_csv("https://github.com/ImanuelSaifool/Data-Science-PROJECT-LAB-/raw/main/OneDrive/Desktop/Coding%20Projects/H224.csv")
@@ -219,7 +219,7 @@ for col, name in disease_map.items():
             "Avg Public Pay ($)": round(avg_public, 2)
         })
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# 5. VISUALIZATIONS (Heatmap & Policy Graphs)
+# 5. VISUALIZATIONS (Heatmap)
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 X = clean_df[['TOTSLF', 'FAMINC', 'PUBLIC_TOTAL', 'AGELAST']]
 y = clean_df['UNABLE']
@@ -247,7 +247,7 @@ plt.title("Correlation Heatmap: Drivers of Non-Adherence", fontsize=14)
 plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# 5. ADVANCED VISUALIZATIONS
+# 6. VISUALIZATIONS (Heatmap)
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 plt.rcParams['figure.figsize'] = (12, 6)
 
@@ -299,4 +299,44 @@ plt.axvline(x=baseline_rate, color='red', linestyle='--', label=f'Avg Cancer Pat
 plt.title("Financial Toxicity Rate by Comorbidity", fontsize=14)
 plt.xlabel("Percentage of Patients Reporting Financial Issues (%)")
 plt.legend()
+plt.show()
+
+sns.set_style("whitegrid")
+
+sex_map = {1: "Male", 2: "Female"}
+clean_df["Assigned Sex"] = clean_df["SEX"].map(sex_map)
+
+clean_df["UNABLE"] = clean_df["UNABLE"].astype(float)
+
+plt.figure(figsize=(6,4))
+ax = sns.barplot(
+    data=clean_df,
+    x="Assigned Sex",
+    y="UNABLE",
+    estimator="mean",
+    errorbar=None
+)
+ax.set_title("Inability to Afford Cancer Treatment by Assigned Sex")
+ax.set_ylabel("Percentage Unable to Afford Cancer Treatment")
+ax.set_xlabel("Assigned Sex")
+ax.set_ylim(0, 1)
+plt.tight_layout()
+plt.show()
+
+clean_df["Age Group"] = pd.cut( 
+    clean_df["AGELAST"], 
+    bins=[0, 17, 34, 49, 64, 120], 
+    labels=["0–17", "18–34", "35–49", "50–64", "65+"] 
+    )
+clean_df['Percentage Unable to Afford Cancer Treatment'] = clean_df.apply(is_unable, axis=1)
+
+from matplotlib.ticker import PercentFormatter
+
+plt.figure(figsize=(8,5)) 
+sns.barplot(data=clean_df, x="Age Group", y="Percentage Unable to Afford Cancer Treatment", estimator="mean", errorbar=None) 
+plt.title("Inability to Afford Cancer Treatment by Age Group") 
+plt.ylabel("Percentage Unable to Afford Cancer Treatment") 
+plt.xlabel("Age Group") 
+plt.ylim(0,1) 
+plt.gca().yaxis.set_major_formatter(PercentFormatter(1)) 
 plt.show()
