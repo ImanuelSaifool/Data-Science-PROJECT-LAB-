@@ -51,14 +51,6 @@ df2021p2 = df2021p2.rename(columns={"FAMINC21": "FAMINC"})
 df2022 = df2022.rename(columns={"FAMINC22": "FAMINC"})
 df2023 = df2023.rename(columns={"FAMINC23": "FAMINC"})
 
-# Insurance covered
-df2019 = df2019.rename(columns={"INSCOV19": "INSCOV"})
-df2020 = df2020.rename(columns={"INSCOV20": "INSCOV"})
-df2021p1 = df2021p1.rename(columns={"INSCOV21": "INSCOV"})
-df2021p2 = df2021p2.rename(columns={"INSCOV21": "INSCOV"})
-df2022 = df2022.rename(columns={"INSCOV22": "INSCOV"})
-df2023 = df2023.rename(columns={"INSCOV23": "INSCOV"})
-
 # Renaming Medicare
 df2019 = df2019.rename(columns={"TOTMCR19": "TOTMCR"})
 df2020 = df2020.rename(columns={"TOTMCR20": "TOTMCR"})
@@ -107,21 +99,88 @@ df2021p2 = df2021p2.rename(columns={"TOTWCP21": "TOTWCP"})
 df2022 = df2022.rename(columns={"TOTWCP22": "TOTWCP"})
 df2023 = df2023.rename(columns={"TOTWCP23": "TOTWCP"})
 
+# Renaming Region
+df2019 = df2019.rename(columns={"REGION19": "REGION"})
+df2020 = df2020.rename(columns={"REGION20": "REGION"})
+df2021p1 = df2021p1.rename(columns={"REGION21": "REGION"})
+df2021p2 = df2021p2.rename(columns={"REGION21": "REGION"})
+df2022 = df2022.rename(columns={"REGION22": "REGION"})
+df2023 = df2023.rename(columns={"REGION23": "REGION"})
 
 # Combining datasets
 main_df = pd.concat([df2019, df2020, df2021p1, df2021p2, df2022, df2023], axis=0)
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# 3. FILTERING & CLEANING
+# 3. FILTERING
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 # Define feature lists
-demog_features = ["FAMINC", "TOTSLF", "AGELAST", "SEX"]
+demog_features = ["FAMINC", "TOTSLF", "AGELAST", "SEX", "REGION"]
 adherance_features = ["DLAYCA42", "AFRDCA42", "DLAYPM42", "AFRDPM42"]
 cancer_features = ["CABLADDR", "CABREAST", "CACERVIX", "CACOLON", "CALUNG", "CALYMPH", "CAMELANO", "CAOTHER", "CAPROSTA", "CASKINNM", "CASKINDK", "CAUTERUS"]
 other_disease_features = ["DIABDX_M18", "HIBPDX", "CHDDX", "ANGIDX", "MIDX", "OHRTDX", "STRKDX", "CHOLDX", "EMPHDX", "ASTHDX", "CHBRON31", "ARTHDX"]
-insurance_features = ["TOTMCR", "TOTMCD", "TOTVA", "TOTOFD", "TOTSTL", "TOTWCP"]
-features = demog_features + cancer_features + other_disease_features + adherance_features
+insurance_features = ["TOTMCD"]
+Financial_Subjectivity_features = ['CFNDBT53', 'CFNBNK53', 'CFNSAC53', 'CFNUNB53']
+features = demog_features + cancer_features + other_disease_features + adherance_features + insurance_features + employment_features
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Filters ONLY for patients who actually received Medicaid funding
+clean_df = main_df[(main_df['CANCERDX'] == 1) & (main_df['TOTMCD'] > 0)].copy()
 
+# Dropping duplicates for same person
+clean_df = clean_df.drop_duplicates(subset=['DUPERSID'], keep='first')
+
+# Filter negative values for demographics to prevent logic error
+clean_df = clean_df[(clean_df[demog_features] >= 0).all(axis=1)]
+
+# Filter negative values for cancer features to prevent logic error
+clean_df[cancer_features] = clean_df[cancer_features].replace([-1,-7, -8, -9], 2)
+
+# Filter negative values for employment features to prevent logic error
+for col in employment_features:
+    if col in clean_df.columns:
+        clean_df[col] = clean_df[col].replace([-1, -7, -8, -9], np.nan)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+clean_df['PUBLIC_TOTAL'] = clean_df[insurance_features].sum(axis=1)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Standardize the adherence features (1 = Issue, 0 = No Issue, NaN = Missing)
+def clean_adherence(val):
+    if val == 1: 
+        return 1  # Yes, experienced financial barrier
+    elif val == 2: 
+        return 0  # No, did not experience barrier
+    else: 
+        return np.nan # Treat negatives as missing data
+
+# Apply cleaning to all four features
+for col in adherance_features:
+    clean_df[col] = clean_df[col].apply(clean_adherence)
+
+# Drop rows where we don't have valid adherence data to avoid skewed math
+clean_df = clean_df.dropna(subset=adherance_features)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+clean_df['TOXICITY_SCORE'] = clean_df[adherance_features].sum(axis=1)
+def calculate_toxicity_tier(row):
+    # If they are completely UNABLE to afford either care or meds -> Severe
+    if row['AFRDCA42'] == 1 or row['AFRDPM42'] == 1:
+        return "Severe (Forgone Care/Meds)"
+    # Else, if they DELAYED care or meds -> Moderate
+    elif row['DLAYCA42'] == 1 or row['DLAYPM42'] == 1:
+        return "Moderate (Delayed Care/Meds)"
+    # Otherwise -> None
+    else:
+        return "None (Fully Adherent)"
+
+clean_df['TOXICITY_TIER'] = clean_df.apply(calculate_toxicity_tier, axis=1)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Total Known Cost (What the patient paid + What public insurance paid)
+clean_df['TOTAL_KNOWN_COST'] = clean_df['PUBLIC_TOTAL'] + clean_df['TOTSLF']
+
+# 2. Calculate the Coverage Ratio
+clean_df['COVERAGE_RATIO'] = clean_df['PUBLIC_TOTAL'] / (clean_df['TOTAL_KNOWN_COST'] + 1e-9)
+clean_df['COVERAGE_RATIO_PCT'] = clean_df['COVERAGE_RATIO'] * 100
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+clean_df['CATASTROPHIC_COST'] = (clean_df['TOTSLF'] > (0.10 * clean_df['FAMINC'])).astype(int)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
 cancer_map = {
     "CABLADDR": "Bladder Cancer",
     "CABREAST": "Breast Cancer",
@@ -151,33 +210,6 @@ disease_map = {
     "ANGIDX": "Angina",
     "CHBRON31": "Chronic Bronchitis"
 }
-# yah
-
-
-# Filter for positive cancer diagnosis and public health insurance
-clean_df = main_df[(main_df['CANCERDX'] == 1) & (main_df['INSCOV'] == 2)].copy()
-
-# Dropping duplicates for same person
-clean_df = clean_df.drop_duplicates(subset=['DUPERSID'], keep='first')
-
-# Filter negative values for demographics only to prevent logic error
-clean_df = clean_df[(clean_df[demog_features] >= 0).all(axis=1)]
-
-# Filter negative values for demographics only to prevent logic error
-clean_df[cancer_features] = clean_df[cancer_features].replace([-1,-7, -8, -9], 2)
-
-#categorical encoding
-    # for other stuff
-def is_unable(row):
-    val = row.get('DLAYPM42')
-    if val == 1: return 1 # Yes, unable to pay
-    elif val == 2: return 0 # No, was able to pay
-    else: return np.nan
-
-clean_df['UNABLE'] = clean_df.apply(is_unable, axis=1)
-clean_df = clean_df.dropna(subset=['UNABLE'])
-
-clean_df['PUBLIC_TOTAL'] = clean_df[insurance_features].sum(axis=1)
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
 # 4. SUMMARY STATISTICS
@@ -186,14 +218,15 @@ clean_df['PUBLIC_TOTAL'] = clean_df[insurance_features].sum(axis=1)
 print("--- GENERAL SUMMARY STATISTICS (General) ---")
 print(clean_df[features].describe()) 
 
-print("\n--- Average Out-of-Pocket Cost by Ability to Pay ---")
-print(clean_df.groupby('UNABLE')['TOTSLF'].mean())
+# Grouping by the new TOXICITY_SCORE instead of UNABLE
+print("\n--- Average Out-of-Pocket Cost by Toxicity Score ---")
+print(clean_df.groupby('TOXICITY_SCORE')['TOTSLF'].mean())
 
-print("\n--- Average Family Income ---")
-print(clean_df.groupby('UNABLE')['FAMINC'].mean())
+print("\n--- Average Family Income by Toxicity Score ---")
+print(clean_df.groupby('TOXICITY_SCORE')['FAMINC'].mean())
 
-print("\n--- Average Public Insurance Coverage ---")
-print(clean_df.groupby('UNABLE')['PUBLIC_TOTAL'].mean())
+print("\n--- Average Public Insurance Coverage by Toxicity Score ---")
+print(clean_df.groupby('TOXICITY_SCORE')['PUBLIC_TOTAL'].mean())
 
 summary_list = []
 total_patients = len(clean_df)
@@ -207,10 +240,13 @@ for col, name in disease_map.items():
         num_patients = len(disease_subgroup)
         percent = (num_patients / total_patients) * 100
         
-        # Calculate AVERAGE cost/income for this group (Not the whole list)
+        # Calculate AVERAGE cost/income for this group 
         avg_oop = disease_subgroup['TOTSLF'].mean()
         avg_income = disease_subgroup['FAMINC'].mean()
         avg_public = disease_subgroup['PUBLIC_TOTAL'].mean()
+
+        # Added: Average Toxicity Score for patients with this comorbidity
+        avg_toxicity = disease_subgroup['TOXICITY_SCORE'].mean()
 
         summary_list.append({
             "Comorbidity": name,
@@ -218,23 +254,39 @@ for col, name in disease_map.items():
             "Prevalence (%)": round(percent, 2),
             "Avg OOP Cost ($)": round(avg_oop, 2),
             "Avg Family Income ($)": round(avg_income, 2),
-            "Avg Public Pay ($)": round(avg_public, 2)
+            "Avg Public Pay ($)": round(avg_public, 2),
+            "Avg Toxicity Score": round(avg_toxicity, 2)
         })
-# ----------------------------------------------------------------------------------------------------------------------------------------------
-# 5. VISUALIZATIONS (Heatmap)
-# ----------------------------------------------------------------------------------------------------------------------------------------------
-X = clean_df[['TOTSLF', 'FAMINC', 'PUBLIC_TOTAL', 'AGELAST']]
-y = clean_df['UNABLE']
 
-mi_scores = mutual_info_classif(X, y)
+# Optional: Print the comorbidity summary nicely
+summary_df = pd.DataFrame(summary_list).sort_values(by="Avg Toxicity Score", ascending=False)
+print("\n--- Comorbidity Summary (Sorted by Worst Adherence) ---")
+print(summary_df)
 
+print("\n--- PATIENT COUNT BY TOXICITY TIER ---")
+# 1. Get the raw number of patients in each category
+tier_counts = clean_df['TOXICITY_TIER'].value_counts()
+print(tier_counts)
+
+print("\n--- PERCENTAGE BREAKDOWN ---")
+# 2. Get the exact percentage to see the severity of the imbalance
+tier_percentages = clean_df['TOXICITY_TIER'].value_counts(normalize=True) * 100
+print(tier_percentages.round(2).astype(str) + '%')
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 5. V(Heatmap)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+X = clean_df[['TOTSLF', 'FAMINC', 'PUBLIC_TOTAL', 'AGELAST', 'COVERAGE_RATIO_PCT', 'CATASTROPHIC_COST']]
+y = clean_df['TOXICITY_SCORE']
+
+mi_scores = mutual_info_classif(X, y, random_state=42)
+
+print("\n--- Mutual Information Scores (Target: TOXICITY_SCORE) ---")
 for feature, score in zip(X.columns, mi_scores):
-    print(f"{feature}: {score}")
+    print(f"{feature}: {score:.4f}")
 
-# A. FEATURE CORRELATION HEATMAP (Targeted)
-# We select only the "drivers" of adherence to see the signal clearly
 plt.figure(figsize=(10, 8))
-corr_features = ['UNABLE', 'TOTSLF', 'FAMINC', 'PUBLIC_TOTAL', 'AGELAST']
+
+corr_features = ['TOXICITY_SCORE', 'TOTSLF', 'FAMINC', 'PUBLIC_TOTAL', 'COVERAGE_RATIO_PCT', 'CATASTROPHIC_COST', 'AGELAST']
 corr_data = clean_df[corr_features].corr(method='spearman')
 
 sns.heatmap(
@@ -245,100 +297,338 @@ sns.heatmap(
     linewidths=0.5,
     vmin=-1, vmax=1
 )
-plt.title("Correlation Heatmap: Drivers of Non-Adherence", fontsize=14)
+
+plt.title("Correlation Heatmap: Economic Drivers of Non-Adherence", fontsize=14, fontweight='bold')
+plt.tight_layout()
 plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-# 6. VISUALIZATIONS (Boxplot of income vs cost)
+# 6. V(Boxplot of income vs cost)
 # ----------------------------------------------------------------------------------------------------------------------------------------------
-plt.rcParams['figure.figsize'] = (12, 6)
+plt.rcParams['figure.figsize'] = (16, 6)
 
+# We use boxplots to compare the distributions across the new Toxicity Tiers.
+# Note: We use 'showfliers=False' because MEPS has massive outliers that ruin the visual scale.
 
-# We use boxplots to compare the distributions.
-# Note: We use 'showfliers=False' because MEPS has massive outliers that ruin the scale.
+fig, axes = plt.subplots(1, 2)
+tier_order = ["None (Fully Adherent)", "Moderate (Delayed Care/Meds)", "Severe (Forgone Care/Meds)"]
 
-fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
-# Plot 1: Out-of-Pocket Costs
-sns.boxplot(data=clean_df, x='UNABLE', y='DLAYPM42', ax=axes[0], 
-            showfliers=False, palette="Reds")
-axes[0].set_title("Impact of Out-of-Pocket Costs on Adherence", fontsize=14)
-axes[0].set_xticklabels(['Able to Pay', 'Financial Toxicity (Unable/Delay)'])
+# Plot 1: Out-of-Pocket Costs (Fixed the bug here: y='TOTSLF')
+sns.boxplot(
+    data=clean_df, 
+    x='TOXICITY_TIER', 
+    y='TOTSLF', 
+    ax=axes[0], 
+    order=tier_order,
+    showfliers=False, 
+    palette="Reds"
+)
+axes[0].set_title("Impact of Out-of-Pocket Costs on Adherence Severity", fontsize=14, fontweight='bold')
+axes[0].set_xlabel("Financial Toxicity Tier")
 axes[0].set_ylabel("Total Out-of-Pocket Cost ($)")
 
 # Plot 2: Family Income
-sns.boxplot(data=clean_df, x='UNABLE', y='FAMINC', ax=axes[1], 
-            showfliers=False, palette="Greens")
-axes[1].set_title("Protective Effect of Income", fontsize=14)
-axes[1].set_xticklabels(['Able to Pay', 'Financial Toxicity (Unable/Delay)'])
+sns.boxplot(
+    data=clean_df, 
+    x='TOXICITY_TIER', 
+    y='FAMINC', 
+    ax=axes[1], 
+    order=tier_order,
+    showfliers=False, 
+    palette="Greens"
+)
+axes[1].set_title("Protective Effect of Income on Adherence", fontsize=14, fontweight='bold')
+axes[1].set_xlabel("Financial Toxicity Tier")
 axes[1].set_ylabel("Family Income ($)")
 
 plt.tight_layout()
 plt.show()
 
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 7. V(Comorbidity Multiplier)
+#       Does having Diabetes or Heart Disease ALONG with Cancer increase financial risk?
+# ----------------------------------------------------------------------------------------------------------------------------------------------
 
-# --- VISUALIZATION 2: The "Comorbidity Multiplier" ---
-# Does having Diabetes or Heart Disease ALONG with Cancer increase financial risk?
-
-# 2. Calculate the "Toxicity Rate" for each group
 risk_data = []
-baseline_rate = clean_df['UNABLE'].mean() * 100 # The average risk for ANY cancer patient
+
+# Calculate the baseline rate of ANY financial toxicity (Score > 0) for the average cancer patient
+baseline_rate = (clean_df['TOXICITY_SCORE'] > 0).mean() * 100 
 
 for code, name in disease_map.items():
     if code in clean_df.columns:
         # Get patients with this specific disease
         subset = clean_df[clean_df[code] == 1]
-        # Calculate % who are UNABLE
-        risk = subset['UNABLE'].mean() * 100
-        risk_data.append({'Condition': name, 'Risk_Percentage': risk})
+        
+        # Calculate % who have ANY financial adherence issue (Score > 0)
+        risk = (subset['TOXICITY_SCORE'] > 0).mean() * 100
+        
+        # We can also capture the average severity score just to have it
+        avg_score = subset['TOXICITY_SCORE'].mean()
+        
+        risk_data.append({
+            'Condition': name, 
+            'Risk_Percentage': risk, 
+            'Avg_Severity': avg_score
+        })
 
-# 3. Plot
+# Sort by the highest risk percentage
 risk_df = pd.DataFrame(risk_data).sort_values('Risk_Percentage', ascending=False)
 
 plt.figure(figsize=(10, 6))
 sns.barplot(data=risk_df, x='Risk_Percentage', y='Condition', palette="magma")
+
+# Draw the baseline red dashed line for comparison
 plt.axvline(x=baseline_rate, color='red', linestyle='--', label=f'Avg Cancer Patient ({baseline_rate:.1f}%)')
-plt.title("Financial Toxicity Rate by Comorbidity", fontsize=14)
-plt.xlabel("Percentage of Patients Reporting Financial Issues (%)")
+
+plt.title("Financial Toxicity Rate by Comorbidity", fontsize=14, fontweight='bold')
+plt.xlabel("Percentage of Patients Reporting Financial Adherence Issues (%)")
+plt.ylabel("") # Hiding the Y-axis label since the condition names are self-explanatory
 plt.legend()
-plt.show()
-
-sns.set_style("whitegrid")
-
-sex_map = {1: "Male", 2: "Female"}
-clean_df["Assigned Sex"] = clean_df["SEX"].map(sex_map)
-
-clean_df["UNABLE"] = clean_df["UNABLE"].astype(float)
-
-plt.figure(figsize=(6,4))
-ax = sns.barplot(
-    data=clean_df,
-    x="Assigned Sex",
-    y="UNABLE",
-    estimator="mean",
-    errorbar=None
-)
-ax.set_title("Inability to Afford Cancer Treatment by Assigned Sex")
-ax.set_ylabel("Percentage Unable to Afford Cancer Treatment")
-ax.set_xlabel("Assigned Sex")
-ax.set_ylim(0, 1)
 plt.tight_layout()
 plt.show()
+
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 8. V(Difference Between Age)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+from matplotlib.ticker import PercentFormatter
 
 clean_df["Age Group"] = pd.cut( 
     clean_df["AGELAST"], 
     bins=[0, 17, 34, 49, 64, 120], 
     labels=["0–17", "18–34", "35–49", "50–64", "65+"] 
-    )
-clean_df['Percentage Unable to Afford Cancer Treatment'] = clean_df.apply(is_unable, axis=1)
+)
 
-from matplotlib.ticker import PercentFormatter
+clean_df['ANY_TOXICITY'] = (clean_df['TOXICITY_SCORE'] > 0).astype(int)
 
 plt.figure(figsize=(8,5)) 
-sns.barplot(data=clean_df, x="Age Group", y="Percentage Unable to Afford Cancer Treatment", estimator="mean", errorbar=None) 
-plt.title("Inability to Afford Cancer Treatment by Age Group") 
-plt.ylabel("Percentage Unable to Afford Cancer Treatment") 
+sns.barplot(
+    data=clean_df, 
+    x="Age Group", 
+    y="ANY_TOXICITY", 
+    estimator="mean", 
+    errorbar=None,
+    palette="Blues"
+) 
+plt.title("Financial Toxicity Rate by Age Group", fontsize=14, fontweight='bold') 
+plt.ylabel("Percentage Reporting Adherence Issues (%)") 
 plt.xlabel("Age Group") 
 plt.ylim(0,1) 
 plt.gca().yaxis.set_major_formatter(PercentFormatter(1)) 
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 9. VISUALIZATIONS (Difference Between Sex)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+sns.set_style("whitegrid")
+
+sex_map = {1: "Male", 2: "Female"}
+clean_df["Assigned Sex"] = clean_df["SEX"].map(sex_map)
+
+plt.figure(figsize=(6,4))
+ax = sns.barplot(
+    data=clean_df,
+    x="Assigned Sex",
+    y="ANY_TOXICITY",
+    estimator="mean",
+    errorbar=None,
+    palette="Pastel1"
+)
+ax.set_title("Financial Toxicity Rate by Assigned Sex", fontsize=14, fontweight='bold')
+ax.set_ylabel("Percentage Reporting Adherence Issues (%)")
+ax.set_xlabel("Assigned Sex")
+ax.set_ylim(0, 1)
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 9. V(Toxicity Tier)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+
+plt.figure(figsize=(10, 6))
+
+# Boxplot showing how Family Income protects against different TIERS of toxicity
+sns.boxplot(
+    data=clean_df, 
+    x='TOXICITY_TIER', 
+    y='FAMINC', 
+    order=["None (Fully Adherent)", "Moderate (Delayed Care/Meds)", "Severe (Forgone Care/Meds)"],
+    palette="YlOrRd", 
+    showfliers=False
+)
+
+plt.title("How Family Income Impacts Adherence Severity", fontsize=14)
+plt.ylabel("Family Income ($)")
+plt.xlabel("Financial Toxicity Tier")
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 10. V(Insurance Efficacy & Coverage Ratios)
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+
+# A KDE plot shows where patients are concentrated based on their coverage percentage
+sns.kdeplot(
+    data=clean_df, 
+    x='COVERAGE_RATIO_PCT', 
+    hue='TOXICITY_TIER', 
+    fill=True, 
+    common_norm=False, 
+    palette='Set1',
+    alpha=0.5,
+    linewidth=2
+)
+
+plt.title("The 'Tipping Point': How Coverage Ratio Impacts Adherence", fontsize=14, fontweight='bold')
+plt.xlabel("Percentage of Healthcare Bill Covered by Public Insurance (%)", fontsize=12)
+plt.ylabel("Density of Patients", fontsize=12)
+plt.xlim(0, 100) # Lock the X-axis from 0% to 100% coverage
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 11. VISUALIZATIONS (Cancer-Specific Financial Toxicity)
+#        Which specific cancer diagnoses carry the highest economic risk?
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+
+cancer_risk_data = []
+
+# Calculate the baseline rate of ANY financial toxicity for the average cancer patient
+baseline_rate = (clean_df['TOXICITY_SCORE'] > 0).mean() * 100 
+
+for code, name in cancer_map.items():
+    if code in clean_df.columns:
+        # Filter for patients with this specific cancer (1 = Yes in MEPS)
+        subset = clean_df[clean_df[code] == 1]
+        
+        # Make sure there are actually patients in this bucket to avoid division-by-zero errors
+        if len(subset) > 0:
+            # Calculate % who have ANY financial adherence issue
+            risk = (subset['TOXICITY_SCORE'] > 0).mean() * 100
+            cancer_risk_data.append({
+                'Cancer_Type': name, 
+                'Risk_Percentage': risk, 
+                'Patient_Count': len(subset)
+            })
+
+# Convert to DataFrame and sort by highest risk
+cancer_risk_df = pd.DataFrame(cancer_risk_data).sort_values('Risk_Percentage', ascending=False)
+
+plt.figure(figsize=(12, 7))
+sns.barplot(data=cancer_risk_df, x='Risk_Percentage', y='Cancer_Type', palette="mako")
+
+# Add the baseline average line so you can clearly see who is above/below average
+plt.axvline(x=baseline_rate, color='red', linestyle='--', label=f'Avg Cancer Patient ({baseline_rate:.1f}%)')
+
+plt.title("Financial Toxicity Rate by Specific Cancer Diagnosis", fontsize=14, fontweight='bold')
+plt.xlabel("Percentage Reporting Financial Adherence Issues (%)")
+plt.ylabel("") # Hiding Y-axis label since the cancer names are self-explanatory
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 12. VISUALIZATIONS (Catastrophic Health Expenditure)
+#        How does crossing the WHO 10% threshold correlate with abandoning care?
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+
+plt.figure(figsize=(8, 6))
+
+ax = sns.barplot(
+    data=clean_df, 
+    x='TOXICITY_TIER', 
+    y='CATASTROPHIC_COST', 
+    order=["None (Fully Adherent)", "Moderate (Delayed Care/Meds)", "Severe (Forgone Care/Meds)"],
+    palette="flare",
+    estimator="mean",
+    errorbar=None
+)
+
+plt.title("Catastrophic Health Expenditure (>10% of Income) by Adherence Tier", fontsize=14, fontweight='bold')
+plt.ylabel("Percentage Facing Catastrophic Costs (%)")
+plt.xlabel("Financial Toxicity Tier")
+plt.ylim(0, 1)
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+
+# Add value labels on top of the bars for easy reading in a presentation
+for p in ax.patches:
+    ax.annotate(f"{p.get_height()*100:.1f}%", 
+                (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha='center', va='bottom', 
+                fontsize=11, color='black', xytext=(0, 5), 
+                textcoords='offset points')
+
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 13. VISUALIZATIONS (Regional Medicaid Disparities)
+#        Does geographical location dictate the efficacy of public insurance?
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+
+# Map the MEPS region codes to actual names
+region_map = {1: "Northeast", 2: "Midwest", 3: "South", 4: "West"}
+clean_df['Region_Name'] = clean_df['REGION'].map(region_map)
+
+plt.figure(figsize=(9, 6))
+
+ax = sns.barplot(
+    data=clean_df, 
+    x='Region_Name', 
+    y='ANY_TOXICITY', 
+    order=["Northeast", "Midwest", "South", "West"],
+    palette="viridis",
+    estimator="mean",
+    errorbar=None
+)
+
+plt.title("Financial Toxicity Rates for Medicaid Cancer Patients by Region", fontsize=14, fontweight='bold')
+plt.ylabel("Percentage Reporting Adherence Issues (%)")
+plt.xlabel("US Region")
+plt.ylim(0, 1)
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+
+# Add value labels on top of the bars
+for p in ax.patches:
+    ax.annotate(f"{p.get_height()*100:.1f}%", 
+                (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha='center', va='bottom', 
+                fontsize=11, color='black', xytext=(0, 5), 
+                textcoords='offset points')
+
+plt.tight_layout()
+plt.show()
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# 14. VISUALIZATIONS (The Optimization Frontier)
+#        At what intersection of Income and Medicaid Subsidy do patients abandon care?
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+
+plt.figure(figsize=(10, 7))
+
+# We filter out the extreme 1% of outliers in income and subsidy just so the scatter plot isn't squished
+q_inc = clean_df['FAMINC'].quantile(0.95)
+q_mcd = clean_df['PUBLIC_TOTAL'].quantile(0.95)
+
+scatter_df = clean_df[(clean_df['FAMINC'] < q_inc) & (clean_df['PUBLIC_TOTAL'] < q_mcd)]
+
+sns.scatterplot(
+    data=scatter_df, 
+    x='FAMINC', 
+    y='PUBLIC_TOTAL', 
+    hue='TOXICITY_TIER', 
+    palette=['#2ca02c', '#ff7f0e', '#d62728'], # Green, Orange, Red
+    alpha=0.7,
+    s=60
+)
+
+plt.title("The Optimization Frontier: Income vs. Medicaid Subsidy", fontsize=14, fontweight='bold')
+plt.xlabel("Family Income ($)")
+plt.ylabel("Medicaid Subsidy Provided ($)")
+plt.legend(title="Financial Toxicity Tier")
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
 plt.show()
