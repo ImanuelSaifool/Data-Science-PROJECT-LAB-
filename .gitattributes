@@ -1,2 +1,5 @@
 h216.csv filter=lfs diff=lfs merge=lfs -text
 H224.csv filter=lfs diff=lfs merge=lfs -text
+h171.ssp filter=lfs diff=lfs merge=lfs -text
+*.xpt filter=lfs diff=lfs merge=lfs -text
+*.ssp filter=lfs diff=lfs merge=lfs -text
