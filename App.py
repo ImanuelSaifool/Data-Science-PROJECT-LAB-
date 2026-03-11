@@ -139,13 +139,19 @@ if st.button("RUN STATISTICAL SUBSIDY EXPECTATION", type="primary", use_containe
         # 3. Comorbidity Mapping
         disease_features = ["DIABDX", "HIBPDX", "CHDDX", "ANGIDX", "MIDX", "OHRTDX", "STRKDX", "CHOLDX", "EMPHDX", "ASTHDX", "CHBRON", "ARTHDX"]
         patient_diseases = {col: 2 for col in disease_features}
-        patient_age_diag = {col.replace("DX", "AGED"): 0 for col in disease_features}
         
+        # FIX 1: Generate the exact AGE_DIAG names the model expects
+        patient_age_diag = {}
+        for col in disease_features:
+            if col != "CHBRON": # CHBRON doesn't have an age variable in MEPS
+                patient_age_diag[f"AGE_DIAG_{col}"] = 0
+                
         for d in selected_diseases:
             idx = disease_list.index(d)
             feat_name = disease_features[idx]
             patient_diseases[feat_name] = 1
-            patient_age_diag[feat_name.replace("DX", "AGED")] = patient_age 
+            if feat_name != "CHBRON":
+                patient_age_diag[f"AGE_DIAG_{feat_name}"] = patient_age 
             
         # 4. Engineered Utilizations
         total_visits_calc = patient_ertot 
@@ -188,13 +194,19 @@ if st.button("RUN STATISTICAL SUBSIDY EXPECTATION", type="primary", use_containe
         patient_data.update({k: [v] for k, v in patient_diseases.items()})
         patient_data.update({k: [v] for k, v in patient_age_diag.items()})
         
+        # FIX 2: Override any corrupt pickle lists with the model's actual memory
+        if hasattr(final_rf_model, "feature_names_in_"):
+            expected_features = final_rf_model.feature_names_in_
+        else:
+            expected_features = selected_features_list
+            
         # Fill any missing baseline features with generic safeties 
-        for col in selected_features_list:
+        for col in expected_features:
             if col not in patient_data:
                 patient_data[col] = [0]
                 
-        # 6. Predict using .values to prevent sklearn naming warnings
-        new_patient_df = pd.DataFrame(patient_data)[selected_features_list]
+        # 6. Predict using exact matched features
+        new_patient_df = pd.DataFrame(patient_data)[expected_features]
         new_patient_df_selected = new_patient_df.values
         
         # Medicaid Gate
